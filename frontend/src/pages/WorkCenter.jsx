@@ -1,125 +1,113 @@
-import { useState } from "react";
-import { Plus, Filter, MoreHorizontal, User, Calendar,
-         Tag, ChevronDown, GripVertical, Search,
-         Kanban, List, LayoutGrid } from "lucide-react";
-import Badge  from "@/components/shared/Badge";
-import Modal  from "@/components/shared/Modal";
-import EmptyState from "@/components/shared/EmptyState";
+import { useState, useEffect } from "react";
+import { supabase } from "@/lib/supabase";
+import { 
+  Plus, MoreHorizontal, Calendar, 
+  Search, Kanban, List 
+} from "lucide-react";
+import Modal from "@/components/shared/Modal";
 import clsx from "clsx";
 import { format } from "date-fns";
 
+/* ── Kanban Column Configuration ── */
 const COLUMNS = [
-  { id: "backlog",     label: "Backlog",     color: "#484F58", count: 4  },
-  { id: "todo",        label: "To Do",       color: "#2F81F7", count: 6  },
-  { id: "in_progress", label: "In Progress", color: "#D29922", count: 3  },
-  { id: "review",      label: "In Review",   color: "#A371F7", count: 2  },
-  { id: "done",        label: "Done",        color: "#3FB950", count: 9  },
+  { id: "backlog",     label: "Backlog",     color: "#94A3B8" },
+  { id: "todo",        label: "To Do",       color: "#3B82F6" },
+  { id: "in_progress", label: "In Progress", color: "#F59E0B" },
+  { id: "review",      label: "In Review",   color: "#7C3AED" },
+  { id: "done",        label: "Done",        color: "#10B981" }
 ];
 
 const INITIAL_CARDS = {
-  backlog: [],
-  todo: [],
-  in_progress: [],
-  review: [],
-  done: [],
+  backlog: [], todo: [], in_progress: [], review: [], done: [],
 };
 
 const PRIORITY_BADGE = {
-  critical: "red",
-  high:     "red",
-  medium:   "amber",
-  low:      "gray",
+  critical: { bg: "#FEE2E2", text: "#EF4444" },
+  high:     { bg: "#FEE2E2", text: "#EF4444" },
+  medium:   { bg: "#FEF3C7", text: "#F59E0B" },
+  low:      { bg: "#E0F2FE", text: "#3B82F6" },
 };
 
-// 1. ADD onDelete TO THE PROPS HERE:
-function KanbanCard({ card, colId, onMove, onDelete }) {
+/* ── Kanban Card Component ── */
+function KanbanCard({ card, colId, onMove, onDelete, onDragStart }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
-    <div className="kanban-card group">
+    <div 
+      draggable
+      onDragStart={(e) => onDragStart(e, card.id, colId)}
+      className="group relative cursor-grab active:cursor-grabbing transition-all hover:-translate-y-1"
+      style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "16px", padding: "16px", marginBottom: "12px", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }}
+    >
       {/* Top row */}
-      <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-sm font-medium text-primary leading-snug flex-1">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <h4 className="text-[14px] font-bold text-[#0F172A] leading-snug flex-1">
           {card.title}
-        </p>
+        </h4>
         <div className="relative flex-shrink-0">
           <button
             onClick={() => setMenuOpen((v) => !v)}
-            className="btn btn-ghost btn-icon opacity-0 group-hover:opacity-100 transition-opacity"
-            style={{ width: 22, height: 22, padding: 2 }}
+            className="opacity-0 group-hover:opacity-100 transition-opacity text-[#94A3B8] hover:text-[#7C3AED] p-1 rounded-md hover:bg-[#F1F5F9]"
           >
-            <MoreHorizontal size={13} />
+            <MoreHorizontal size={16} />
           </button>
           {menuOpen && (
             <>
               <div className="fixed inset-0 z-20" onClick={() => setMenuOpen(false)} />
-              <div className="absolute right-0 top-full mt-1 z-30 w-36
-                              bg-overlay border border-border rounded-lg shadow-modal
-                              overflow-hidden animate-scale-in">
+              <div className="absolute right-0 top-full mt-1 z-30 w-36 bg-white border border-[#E2E8F0] rounded-xl shadow-lg overflow-hidden animate-scale-in py-1">
                 {COLUMNS.filter((c) => c.id !== colId).map((col) => (
                   <button
                     key={col.id}
                     onClick={() => { onMove(card.id, colId, col.id); setMenuOpen(false); }}
-                    className="w-full text-left px-3 py-2 text-xs text-secondary
-                               hover:bg-raised hover:text-primary transition-colors"
+                    className="w-full text-left px-4 py-2 text-xs font-semibold text-[#64748B] hover:bg-[#F8FAFC] hover:text-[#0F172A] transition-colors"
                   >
                     Move to {col.label}
                   </button>
                 ))}
-                
-                {/* 2. ADD THE DELETE BUTTON HERE: */}
-                <div className="h-px bg-border my-1" />
+                <div className="h-px bg-[#F1F5F9] my-1" />
                 <button
                   onClick={() => { onDelete(card.id, colId); setMenuOpen(false); }}
-                  className="w-full text-left px-3 py-1.5 text-xs text-danger hover:bg-danger/10 transition-colors"
+                  className="w-full text-left px-4 py-2 text-xs font-bold text-[#EF4444] hover:bg-[#FEE2E2] transition-colors"
                 >
                   Delete Task
                 </button>
-                
               </div>
             </>
           )}
         </div>
       </div>
-// ... rest of the KanbanCard component stays exactly the same ...
 
       {/* Progress bar for in-progress */}
       {card.progress !== undefined && (
-        <div className="mb-2">
-          <div className="nx-progress">
+        <div className="mb-3">
+          <div className="w-full h-1.5 rounded-full overflow-hidden bg-[#F1F5F9]">
             <div
-              className="nx-progress-fill"
+              className="h-full rounded-full transition-all duration-300"
               style={{
                 width: `${card.progress}%`,
-                background: card.progress >= 75 ? "#3FB950" : card.progress >= 40 ? "#2F81F7" : "#D29922",
+                background: card.progress >= 75 ? "#10B981" : card.progress >= 40 ? "#3B82F6" : "#F59E0B",
               }}
             />
           </div>
-          <div className="text-2xs text-muted mt-0.5 text-right">{card.progress}%</div>
         </div>
       )}
 
-      {/* Tags */}
-      <div className="flex flex-wrap gap-1 mb-2">
-        {card.tags.map((tag) => (
-          <span key={tag} className="badge badge-gray text-2xs">#{tag}</span>
-        ))}
-      </div>
-
       {/* Bottom row */}
-      <div className="flex items-center justify-between mt-2 pt-2 border-t border-border-subtle">
-        <div className="flex items-center gap-1.5">
-          <div className="w-5 h-5 rounded-full bg-accent-muted border border-accent/20
-                          flex items-center justify-center text-2xs font-bold text-accent-hover">
-            {card.assignee}
+      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[#F1F5F9]">
+        <div className="flex items-center gap-2">
+          <div className="w-6 h-6 rounded-md flex items-center justify-center text-[9px] font-bold text-white shadow-sm" style={{ background: "linear-gradient(135deg, #7C3AED, #22D3EE)" }}>
+            {card.assignee || "O"}
           </div>
-          <Badge variant={PRIORITY_BADGE[card.priority] || "gray"}>
-            {card.priority}
-          </Badge>
+          <span 
+            className="text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider"
+            style={{ backgroundColor: PRIORITY_BADGE[card.priority]?.bg || "#F1F5F9", color: PRIORITY_BADGE[card.priority]?.text || "#64748B" }}
+          >
+            {card.priority || 'medium'}
+          </span>
         </div>
         {card.due && (
-          <div className="flex items-center gap-1 text-2xs text-muted">
-            <Calendar size={10} />
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-[#94A3B8]">
+            <Calendar size={12} />
             {format(new Date(card.due), "MMM d")}
           </div>
         )}
@@ -134,58 +122,115 @@ export default function WorkCenter() {
   const [newCard, setNewCard] = useState({ title: "", priority: "medium", colId: "todo" });
   const [search, setSearch] = useState("");
   const [view, setView] = useState("kanban");
-  const deleteCard = (taskId, colId) => {
-    setCards((prev) => ({
-      ...prev,
-      [colId]: prev[colId].filter((c) => c.id !== taskId)
-    }));
+  const [draggedTask, setDraggedTask] = useState(null);
+
+  // 1. Fetch data on load
+  useEffect(() => {
+    const fetchTasks = async () => {
+      const { data, error } = await supabase.from('tasks').select('*');
+      if (data) {
+        const grouped = { backlog: [], todo: [], in_progress: [], review: [], done: [] };
+        data.forEach(task => {
+          const status = task.status || 'todo';
+          if (grouped[status]) {
+            grouped[status].push(task);
+          } else {
+             grouped.todo.push(task);
+          }
+        });
+        setCards(grouped);
+      }
+      if (error) console.error("Error fetching tasks:", error);
+    };
+    fetchTasks();
+  }, []);
+
+  // 2. Delete
+  const deleteCard = async (taskId, colId) => {
+    setCards((prev) => ({ ...prev, [colId]: prev[colId].filter((c) => c.id !== taskId) }));
+    await supabase.from('tasks').delete().eq('id', taskId);
   }; 
 
-  const moveCard = (cardId, fromCol, toCol) => {
+  // 3. Move (Handles both dropdown and drag/drop)
+  const moveCard = async (cardId, fromCol, toCol) => {
+    if (fromCol === toCol) return;
+    
     setCards((prev) => {
       const card = prev[fromCol].find((c) => c.id === cardId);
       if (!card) return prev;
       return {
         ...prev,
         [fromCol]: prev[fromCol].filter((c) => c.id !== cardId),
-        [toCol]:   [card, ...prev[toCol]],
+        [toCol]:   [{ ...card, status: toCol }, ...prev[toCol]],
       };
     });
+
+    // FIXED: Only save the status, not the 'done' property!
+    await supabase.from('tasks').update({ status: toCol }).eq('id', cardId);
   };
 
-  const handleCreate = () => {
+  /* ── Native Drag & Drop Handlers ── */
+  const handleDragStart = (e, taskId, sourceCol) => {
+    setDraggedTask({ id: taskId, sourceCol });
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", taskId);
+  };
+
+  const handleDragOver = (e) => { e.preventDefault(); };
+
+  const handleDrop = (e, targetCol) => {
+    e.preventDefault();
+    if (draggedTask) {
+      moveCard(draggedTask.id, draggedTask.sourceCol, targetCol);
+      setDraggedTask(null);
+    }
+  };
+
+  // 4. Create Task
+  const handleCreate = async () => {
     if (!newCard.title.trim()) return;
-    const id = `new-${Date.now()}`;
+    
+    // FIXED: Only save the status, not the 'done' property!
+    const newTask = { 
+      title: newCard.title, 
+      priority: newCard.priority, 
+      status: newCard.colId
+    };
+
+    const tempId = `temp-${Date.now()}`;
     setCards((prev) => ({
       ...prev,
-      [newCard.colId]: [
-        { id, title: newCard.title, priority: newCard.priority,
-          tags: [], assignee: "AK", due: null },
-        ...prev[newCard.colId],
-      ],
+      [newCard.colId]: [{ id: tempId, ...newTask }, ...prev[newCard.colId]],
     }));
     setNewCard({ title: "", priority: "medium", colId: "todo" });
     setShowNew(false);
+
+    const { data, error } = await supabase.from('tasks').insert([newTask]).select();
+    if (error) {
+      alert(`Supabase rejected the task: ${error?.message}`);
+      setCards(prev => ({ ...prev, [newCard.colId]: prev[newCard.colId].filter(c => c.id !== tempId) }));
+    } else if (data) {
+      setCards((prev) => ({ ...prev, [newCard.colId]: prev[newCard.colId].map(c => c.id === tempId ? data[0] : c) }));
+    }
   };
 
   const totalCards = Object.values(cards).flat().length;
   const doneCards  = cards.done.length;
+  const progressPct = totalCards > 0 ? Math.round((doneCards / totalCards) * 100) : 0;
 
   return (
-    <div className="flex flex-col h-full animate-fade-in" style={{ minHeight: "calc(100vh - 140px)" }}>
+    <div className="flex flex-col h-full animate-fade-in" style={{ backgroundColor: "#F8FAFC", minHeight: "100vh", padding: "10px 0 40px", color: "#0F172A" }}>
 
       {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 mb-5 flex-wrap flex-shrink-0">
+      <div className="flex items-start justify-between gap-4 mb-6 flex-wrap flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-primary">Work Center</h1>
-          <p className="text-sm text-muted mt-0.5">
-            {doneCards}/{totalCards} tasks complete this sprint
-          </p>
+          <h1 style={{ fontSize: "28px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "4px", color: "#0F172A" }}>Work Center</h1>
+          <p style={{ fontSize: "14px", color: "#64748B" }}>{doneCards}/{totalCards} tasks complete this sprint</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {/* View toggle */}
-          <div className="flex items-center bg-surface border border-border rounded-lg p-0.5">
+          <div className="flex items-center bg-white border border-[#E2E8F0] rounded-xl p-1 shadow-sm">
             {[
               { id: "kanban", icon: Kanban },
               { id: "list",   icon: List   },
@@ -194,109 +239,99 @@ export default function WorkCenter() {
                 key={id}
                 onClick={() => setView(id)}
                 className={clsx(
-                  "p-1.5 rounded transition-all",
-                  view === id
-                    ? "bg-raised text-primary"
-                    : "text-muted hover:text-secondary"
+                  "p-2 rounded-lg transition-all",
+                  view === id ? "bg-[#F1F5F9] text-[#0F172A]" : "text-[#94A3B8] hover:text-[#475569]"
                 )}
               >
-                <Icon size={14} />
+                <Icon size={16} />
               </button>
             ))}
           </div>
 
           {/* Search */}
           <div className="relative">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted" />
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Filter tasks..."
-              className="nx-input pl-8 w-44 text-xs"
-              style={{ minHeight: 32 }}
+              className="w-48 bg-white border border-[#E2E8F0] rounded-xl pl-10 pr-4 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED] shadow-sm transition-all"
             />
           </div>
 
           <button
             onClick={() => setShowNew(true)}
-            className="btn btn-blue btn-sm gap-1.5"
+            className="px-4 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all hover:-translate-y-0.5" 
+            style={{ backgroundColor: "#7C3AED", color: "#FFF", boxShadow: "0 4px 15px rgba(124,58,237,0.3)" }}
           >
-            <Plus size={13} /> New Task
+            <Plus size={16} /> New Task
           </button>
         </div>
       </div>
 
       {/* ── Sprint progress bar ─────────────────────────────── */}
-      <div className="nx-card p-4 mb-5 flex-shrink-0">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold text-primary">Sprint #4</span>
-            <Badge variant="blue">Active</Badge>
-            <span className="text-xs text-muted">Apr 21 – May 4, 2026</span>
+      <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "24px", padding: "24px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)", marginBottom: "24px" }} className="flex-shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4">
+            <span className="text-base font-bold text-[#0F172A]">Sprint #4</span>
+            <span className="text-[#10B981] bg-[#D1FAE5] px-3 py-1 rounded-md text-xs font-bold uppercase tracking-wide">Active</span>
+            <span className="text-sm font-medium text-[#64748B] hidden sm:block">Apr 21 – May 4, 2026</span>
           </div>
-          <div className="flex items-center gap-4 text-xs text-muted">
+          <div className="flex items-center gap-4 text-xs font-bold text-[#64748B]">
             {COLUMNS.map((col) => (
-              <div key={col.id} className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-sm" style={{ background: col.color }} />
+              <div key={col.id} className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: col.color }} />
                 <span>{col.label}: {cards[col.id].length}</span>
               </div>
             ))}
           </div>
         </div>
-        <div className="nx-progress" style={{ height: 6 }}>
-          <div
-            className="nx-progress-fill"
-            style={{
-              width: `${Math.round((doneCards / totalCards) * 100)}%`,
-              background: "linear-gradient(90deg, #2F81F7, #3FB950)",
-            }}
-          />
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-bold text-[#64748B] uppercase tracking-wider">Sprint Progress</span>
+          <span className="text-xs font-bold text-[#7C3AED]">{progressPct}%</span>
         </div>
-        <div className="flex justify-between mt-1">
-          <span className="text-2xs text-muted">0</span>
-          <span className="text-2xs text-success font-semibold">
-            {Math.round((doneCards / totalCards) * 100)}% complete
-          </span>
-          <span className="text-2xs text-muted">{totalCards}</span>
+        <div style={{ width: "100%", height: "12px", background: "#F1F5F9", borderRadius: "10px", overflow: "hidden" }}>
+          <div style={{ width: `${progressPct}%`, height: "100%", background: "#7C3AED", borderRadius: "10px", transition: "width 1s ease-in-out" }} />
         </div>
       </div>
 
       {/* ── Kanban board ───────────────────────────────────── */}
       {view === "kanban" && (
-        <div className="kanban-board flex-1">
+        <div className="flex-1 flex gap-5 overflow-x-auto pb-4 pt-1 px-1 custom-scrollbar">
           {COLUMNS.map((col) => {
             const colCards = (cards[col.id] || []).filter((c) =>
               !search || c.title.toLowerCase().includes(search.toLowerCase())
             );
 
             return (
-              <div key={col.id} className="kanban-col">
+              <div 
+                key={col.id} 
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, col.id)}
+                className="flex flex-col flex-shrink-0"
+                style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "24px", minWidth: "320px", height: "100%", overflow: "hidden", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }}
+              >
                 {/* Column header */}
-                <div className="kanban-col-header">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="w-2.5 h-2.5 rounded-full"
-                      style={{ background: col.color }}
-                    />
-                    <span className="text-sm font-semibold text-primary">{col.label}</span>
-                    <span className="w-5 h-5 rounded-full bg-surface border border-border
-                                     flex items-center justify-center text-2xs font-semibold text-muted">
+                <div style={{ padding: "18px 20px", borderBottom: "1px solid #F1F5F9", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#FFFFFF" }}>
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full" style={{ background: col.color }} />
+                    <h3 className="text-sm font-bold text-[#0F172A]">{col.label}</h3>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-md text-[#64748B] bg-[#F1F5F9]">
                       {colCards.length}
                     </span>
                   </div>
                   <button
                     onClick={() => { setNewCard((f) => ({ ...f, colId: col.id })); setShowNew(true); }}
-                    className="btn btn-ghost btn-icon opacity-60 hover:opacity-100"
-                    style={{ width: 22, height: 22, padding: 2 }}
+                    className="text-[#94A3B8] hover:text-[#7C3AED] transition-colors bg-[#F8FAFC] hover:bg-[#F3E8FF] p-1.5 rounded-lg"
                   >
-                    <Plus size={13} />
+                    <Plus size={16} />
                   </button>
                 </div>
 
-                {/* Cards */}
-                <div className="kanban-col-body">
+                {/* Cards Container */}
+                <div className="flex-1 p-3 overflow-y-auto" style={{ background: "#F8FAFC" }}>
                   {colCards.length === 0 ? (
-                    <div className="flex items-center justify-center py-8 text-xs text-muted text-center">
+                    <div className="flex items-center justify-center py-10 text-xs font-bold text-[#94A3B8] border-2 border-dashed border-[#E2E8F0] rounded-xl m-2">
                       Drop tasks here
                     </div>
                   ) : (
@@ -307,6 +342,7 @@ export default function WorkCenter() {
                         colId={col.id}
                         onMove={moveCard}
                         onDelete={deleteCard}
+                        onDragStart={handleDragStart}
                       />
                     ))
                   )}
@@ -319,49 +355,44 @@ export default function WorkCenter() {
 
       {/* ── List view ──────────────────────────────────────── */}
       {view === "list" && (
-        <div className="nx-card overflow-hidden">
-          <table className="nx-table">
+        <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "24px", padding: "4px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }} className="overflow-hidden flex-1">
+          <table className="w-full text-left border-collapse">
             <thead>
               <tr>
-                <th>Task</th>
-                <th>Status</th>
-                <th>Priority</th>
-                <th>Tags</th>
-                <th>Due</th>
+                <th className="p-4 border-b border-[#F1F5F9] text-xs font-bold text-[#64748B] uppercase tracking-wider">Task</th>
+                <th className="p-4 border-b border-[#F1F5F9] text-xs font-bold text-[#64748B] uppercase tracking-wider">Status</th>
+                <th className="p-4 border-b border-[#F1F5F9] text-xs font-bold text-[#64748B] uppercase tracking-wider">Priority</th>
+                <th className="p-4 border-b border-[#F1F5F9] text-xs font-bold text-[#64748B] uppercase tracking-wider">Due</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-[#F1F5F9]">
               {Object.entries(cards).flatMap(([colId, colCards]) =>
                 colCards
                   .filter((c) => !search || c.title.toLowerCase().includes(search.toLowerCase()))
                   .map((card) => {
                     const col = COLUMNS.find((c) => c.id === colId);
                     return (
-                      <tr key={card.id}>
-                        <td>
-                          <span className="text-sm text-primary font-medium">{card.title}</span>
+                      <tr key={card.id} className="hover:bg-[#F8FAFC] transition-colors">
+                        <td className="p-4">
+                          <span className="text-sm text-[#0F172A] font-bold">{card.title}</span>
                         </td>
-                        <td>
-                          <div className="flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full" style={{ background: col?.color }} />
-                            <span className="text-xs text-secondary">{col?.label}</span>
+                        <td className="p-4">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: col?.color }} />
+                            <span className="text-xs font-bold text-[#64748B]">{col?.label}</span>
                           </div>
                         </td>
-                        <td>
-                          <Badge variant={PRIORITY_BADGE[card.priority] || "gray"}>
-                            {card.priority}
-                          </Badge>
+                        <td className="p-4">
+                          <span 
+                            className="text-[10px] font-bold px-2 py-1 rounded-md uppercase tracking-wider"
+                            style={{ backgroundColor: PRIORITY_BADGE[card.priority]?.bg || "#F1F5F9", color: PRIORITY_BADGE[card.priority]?.text || "#64748B" }}
+                          >
+                            {card.priority || 'medium'}
+                          </span>
                         </td>
-                        <td>
-                          <div className="flex gap-1">
-                            {card.tags.slice(0,2).map((t) => (
-                              <span key={t} className="badge badge-gray text-2xs">#{t}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td>
-                          <span className="text-xs text-muted">
-                            {card.due ? format(new Date(card.due), "MMM d") : "—"}
+                        <td className="p-4">
+                          <span className="text-xs font-semibold text-[#94A3B8]">
+                            {card.due ? format(new Date(card.due), "MMM d, yyyy") : "—"}
                           </span>
                         </td>
                       </tr>
@@ -378,34 +409,33 @@ export default function WorkCenter() {
         open={showNew}
         onClose={() => setShowNew(false)}
         title="Create Task"
-        subtitle="Add a new task to your board"
         size="sm"
         footer={
           <>
-            <button className="btn btn-default" onClick={() => setShowNew(false)}>Cancel</button>
-            <button className="btn btn-blue" onClick={handleCreate}>Create Task</button>
+            <button className="px-4 py-2 rounded-xl text-sm font-semibold text-[#64748B] bg-[#F1F5F9] hover:bg-[#E2E8F0] transition-colors" onClick={() => setShowNew(false)}>Cancel</button>
+            <button className="px-4 py-2 rounded-xl text-sm font-semibold transition-all hover:-translate-y-0.5" style={{ backgroundColor: "#7C3AED", color: "#FFF", boxShadow: "0 4px 15px rgba(124,58,237,0.2)" }} onClick={handleCreate}>Create Task</button>
           </>
         }
       >
         <div className="space-y-4">
           <div>
-            <label className="nx-label">Task Title *</label>
+            <label className="block text-xs font-bold text-[#475569] mb-2 uppercase tracking-wide">Task Title *</label>
             <input
               autoFocus
               value={newCard.title}
               onChange={(e) => setNewCard((f) => ({ ...f, title: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               placeholder="What needs to be done?"
-              className="nx-input"
+              className="w-full bg-white border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:border-[#7C3AED] focus:ring-1 focus:ring-[#7C3AED]"
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="nx-label">Priority</label>
+              <label className="block text-xs font-bold text-[#475569] mb-2 uppercase tracking-wide">Priority</label>
               <select
                 value={newCard.priority}
                 onChange={(e) => setNewCard((f) => ({ ...f, priority: e.target.value }))}
-                className="nx-input nx-select"
+                className="w-full bg-white border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:border-[#7C3AED]"
               >
                 {["low","medium","high","critical"].map((p) => (
                   <option key={p} value={p}>{p.toUpperCase()}</option>
@@ -413,11 +443,11 @@ export default function WorkCenter() {
               </select>
             </div>
             <div>
-              <label className="nx-label">Column</label>
+              <label className="block text-xs font-bold text-[#475569] mb-2 uppercase tracking-wide">Column</label>
               <select
                 value={newCard.colId}
                 onChange={(e) => setNewCard((f) => ({ ...f, colId: e.target.value }))}
-                className="nx-input nx-select"
+                className="w-full bg-white border border-[#E2E8F0] rounded-xl px-4 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:border-[#7C3AED]"
               >
                 {COLUMNS.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>

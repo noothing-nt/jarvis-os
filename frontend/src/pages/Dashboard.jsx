@@ -1,443 +1,305 @@
 import { useState, useEffect } from "react";
 import { useNavigate }         from "react-router-dom";
+import { supabase }            from "@/lib/supabase";
 import { useApp }              from "@/App";
 import {
-  AreaChart, Area, BarChart, Bar,
-  XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  CheckCircle2, Clock, Zap, TrendingUp,
-  FolderOpen, Brain, ArrowRight, Plus,
-  Activity, Target, Flame, Star,
-  ExternalLink, MoreHorizontal, RefreshCw,
+  CheckCircle2, Clock, Zap, FolderOpen, Brain, 
+  ArrowRight, Plus, Target, Flame, Lightbulb
 } from "lucide-react";
 import { format, subDays } from "date-fns";
-import { useApp as useCtx } from "@/App";
-import Badge from "@/components/shared/Badge";
-import { Skeleton, SkeletonCard } from "@/components/shared/Skeleton";
-/* ── Real Data Integration Ready ─────────────────────────── */
-const ACTIVITY_DATA = [];
-const TASK_DATA = [];
-const RECENT_ACTIVITY = [];
-const PINNED_PROJECTS = [];
-const TODAY_TASKS = [];
+import { Skeleton } from "@/components/shared/Skeleton";
 
-const STAT_CARDS = [
-  { label: "Tasks Completed", value: "0", sub: "0 today", icon: CheckCircle2, color: "green", trend: "0%", trendUp: true },
-  { label: "Active Projects", value: "0", sub: "0 due", icon: FolderOpen, color: "blue", trend: "0", trendUp: true },
-  { label: "Focus Hours", value: "0", sub: "this week", icon: Clock, color: "purple", trend: "0h", trendUp: true },
-  { label: "XP Earned", value: "0", sub: "Level 1", icon: Zap, color: "amber", trend: "0", trendUp: true },
-  { label: "Streak", value: "0 days", sub: "Personal best: 0", icon: Flame, color: "red", trend: "-", trendUp: true },
-  { label: "Ideas Captured", value: "0", sub: "0 promoted", icon: Brain, color: "teal", trend: "0", trendUp: true },
-];
-
-const PRIORITY_COLORS = {
-  high:   "badge-red",
-  medium: "badge-amber",
-  low:    "badge-gray",
-};
-
-/* ── Custom tooltip ─────────────────────────────────────────────── */
+/* ── Light Mode Tooltip ────────────────────────────── */
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-overlay border border-border rounded-lg px-3 py-2 shadow-modal text-xs">
-      <p className="text-secondary font-medium mb-1">{label}</p>
+    <div style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: "12px", padding: "10px", color: "#0F172A", fontSize: "12px", boxShadow: "0 10px 25px rgba(0,0,0,0.05)" }}>
+      <p style={{ color: "#64748B", marginBottom: "4px", fontWeight: 600 }}>{label}</p>
       {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
+        <div key={p.name} className="flex items-center gap-2 mb-1">
           <span style={{ color: p.color }}>●</span>
-          <span className="text-muted capitalize">{p.name}:</span>
-          <span className="text-primary font-semibold">{p.value}</span>
+          <span style={{ color: "#64748B", textTransform: "capitalize", fontWeight: 500 }}>{p.name}:</span>
+          <span style={{ fontWeight: 700 }}>{p.value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-/* ── Main component ─────────────────────────────────────────────── */
 export default function Dashboard() {
-  const { user }      = useApp();
-  const navigate      = useNavigate();
-  const [tasks, setTasks] = useState(TODAY_TASKS);
+  const { user } = useApp();
+  const navigate = useNavigate();
+  
+  // Real State for Supabase Data
+  const [tasks, setTasks] = useState([]);
+  const [ideas, setIdeas] = useState([]);
+  const [activityData, setActivityData] = useState([]);
+  const [weeklyPct, setWeeklyPct] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    tasksTotal: 0, tasksDone: 0, projectsTotal: 0, notesTotal: 0
+  });
 
-  const name = user?.user_metadata?.full_name
-    || user?.email?.split("@")[0]
-    || "there";
+  const name = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "NooThing";
 
+  // WAKE UP SUPABASE ON LOAD & CALCULATE LIVE METRICS
   useEffect(() => {
-    const t = setTimeout(() => setLoading(false), 600);
-    return () => clearTimeout(t);
+    async function fetchDashboardData() {
+      setLoading(true);
+      try {
+        const { data: projectsData } = await supabase.from('projects').select('*');
+        const { data: tasksData } = await supabase.from('tasks').select('*');
+        const { data: notesData } = await supabase.from('notes').select('*');
+        // Fetch ALL ideas for accurate graph calculation
+        const { data: ideasData } = await supabase.from('ideas').select('*').order('created_at', { ascending: false });
+
+        const tsks = tasksData || [];
+        const ids = ideasData || [];
+        
+        setStats({
+          tasksTotal: tsks.length,
+          tasksDone: tsks.filter(t => t.done || t.completed || t.status === 'done').length,
+          projectsTotal: (projectsData || []).length,
+          notesTotal: (notesData || []).length + ids.length
+        });
+
+        // Get 5 active tasks & Top 4 recent ideas for the lists
+        setTasks(tsks.filter(t => !t.done && t.status !== 'done').slice(0, 5));
+        setIdeas(ids.slice(0, 4));
+
+        const now = new Date();
+
+        // 1. CALCULATE LIVE 14-DAY ACTIVITY DATA
+        const actData = [];
+        for (let i = 13; i >= 0; i--) {
+          const targetDate = subDays(now, i);
+          const dateStr = format(targetDate, "yyyy-MM-dd");
+          
+          // Count interactions (created or updated) on that specific day
+          const tasksCount = tsks.filter(t => t.created_at?.startsWith(dateStr) || t.updated_at?.startsWith(dateStr) || t.due === dateStr).length;
+          const ideasCount = ids.filter(idea => idea.created_at?.startsWith(dateStr)).length;
+          
+          actData.push({ 
+            date: format(targetDate, "MMM d"), 
+            tasks: tasksCount, 
+            ideas: ideasCount 
+          });
+        }
+        setActivityData(actData);
+
+        // 2. CALCULATE LIVE WEEKLY COMPLETION %
+        const sevenDaysAgo = subDays(now, 7);
+        const tasksThisWeek = tsks.filter(t => new Date(t.created_at || 0) >= sevenDaysAgo || new Date(t.updated_at || 0) >= sevenDaysAgo);
+        const doneThisWeek = tasksThisWeek.filter(t => t.done || t.status === 'done' || t.completed);
+        
+        const pctThisWeek = tasksThisWeek.length > 0 ? Math.round((doneThisWeek.length / tasksThisWeek.length) * 100) : 0;
+        setWeeklyPct(pctThisWeek);
+
+      } catch (error) {
+        console.error("Error fetching dashboard data", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchDashboardData();
   }, []);
 
-  const toggleTask = (id) => {
-    setTasks((prev) =>
-      prev.map((t) => t.id === id ? { ...t, done: !t.done } : t)
-    );
+  const toggleTask = async (id) => {
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    const newStatus = !task.done;
+    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, done: newStatus } : t));
+    setStats(prev => ({ ...prev, tasksDone: newStatus ? prev.tasksDone + 1 : prev.tasksDone - 1 }));
+    await supabase.from('tasks').update({ done: newStatus, status: newStatus ? 'done' : 'todo', updated_at: new Date().toISOString() }).eq('id', id);
   };
 
-  const doneTasks = tasks.filter((t) => t.done).length;
-  const pct       = Math.round((doneTasks / tasks.length) * 100);
-
   const hour = new Date().getHours();
-  const greeting =
-    hour < 12 ? "Good morning" :
-    hour < 17 ? "Good afternoon" : "Good evening";
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const pct = stats.tasksTotal > 0 ? Math.round((stats.tasksDone / stats.tasksTotal) * 100) : 0;
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div style={{ backgroundColor: "#F8FAFC", height: "calc(100vh - 64px)", padding: "16px 24px" }} className="animate-fade-in flex flex-col overflow-hidden">
 
-      {/* ── Header ─────────────────────────────────────────── */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      {/* ── Header ── */}
+      <div className="flex items-center justify-between gap-4 mb-4 flex-shrink-0">
         <div>
-          <h1 className="text-2xl font-bold text-primary">
+          <div style={{ fontSize: "24px", fontWeight: 700, letterSpacing: "-0.5px", marginBottom: "2px", color: "#0F172A" }}>
             {greeting}, {name} 👋
-          </h1>
-          <p className="text-sm text-muted mt-1">
-            {format(new Date(), "EEEE, MMMM d, yyyy")} · Here's your command overview.
-          </p>
+          </div>
+          <div style={{ fontSize: "13px", color: "#64748B", fontWeight: 500 }}>
+            {format(new Date(), "EEEE, MMMM d, yyyy")} • Here's your command overview.
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate("/work")}
-            className="btn btn-default btn-sm gap-1.5"
-          >
-            <Target size={13} />
-            Open Work Center
+        <div className="flex gap-3">
+          <button onClick={() => navigate("/work")} style={{ background: "#FFFFFF", border: "1px solid #E2E8F0", color: "#0F172A", padding: "8px 16px", borderRadius: "10px", fontSize: "12px", fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s", boxShadow: "0 2px 10px rgba(0,0,0,0.02)" }} className="hover:bg-[#F8FAFC]">
+            <Target size={14} /> Open Work Center
           </button>
-          <button
-            onClick={() => navigate("/daily")}
-            className="btn btn-blue btn-sm gap-1.5"
-          >
-            <Plus size={13} />
-            Add Task
+          <button onClick={() => navigate("/daily")} style={{ background: "#7C3AED", color: "#fff", border: "none", padding: "8px 16px", borderRadius: "10px", fontSize: "12px", fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 15px rgba(124,58,237,0.3)", display: "flex", alignItems: "center", gap: "6px", transition: "all 0.2s" }} className="hover:bg-[#6D28D9] hover:-translate-y-0.5">
+            <Plus size={14} /> Add Task
           </button>
         </div>
       </div>
 
-      {/* ── Stat Cards ─────────────────────────────────────── */}
+      {/* ── Stat Cards ── */}
       {loading ? (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-4 flex-shrink-0">
           {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="stat-card">
-              <Skeleton className="h-3 w-2/3 mb-3" />
-              <Skeleton className="h-7 w-1/2 mb-2" />
-              <Skeleton className="h-2.5 w-3/4" />
-            </div>
+            <div key={i} style={{ background: "#FFF", borderRadius: "16px", padding: "16px", border: "1px solid #E2E8F0" }}><Skeleton className="h-4 w-1/2 mb-3" /><Skeleton className="h-6 w-3/4" /></div>
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
-          {STAT_CARDS.map(({ label, value, sub, icon: Icon, color, trend, trendUp }) => (
-            <div key={label} className={`stat-card ${color}`}>
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-xs font-medium text-muted uppercase tracking-wide">
-                  {label}
-                </span>
-                <Icon size={14} className={`text-${
-                  color === "green"  ? "success"       :
-                  color === "blue"   ? "accent-hover"  :
-                  color === "purple" ? "purple-400"    :
-                  color === "amber"  ? "warning-light" :
-                  color === "red"    ? "danger-light"  :
-                  "teal-400"
-                }`} />
+        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-4 flex-shrink-0">
+          {[
+            { label: "Tasks Completed", value: stats.tasksDone, icon: <CheckCircle2 size={16}/>, color: "#7C3AED", bg: "#F3E8FF", sub: "Today", trend: `${pct}%`, trendColor: "#7C3AED" },
+            { label: "Active Projects", value: stats.projectsTotal, icon: <FolderOpen size={16}/>, color: "#10B981", bg: "#D1FAE5", sub: "Total", trend: "Live", trendColor: "#10B981" },
+            { label: "Focus Hours", value: "0", icon: <Clock size={16}/>, color: "#3B82F6", bg: "#DBEAFE", sub: "This week", trend: "0h", trendColor: "#3B82F6" },
+            { label: "XP Earned", value: "0", icon: <Zap size={16}/>, color: "#7C3AED", bg: "#F3E8FF", sub: "Level 1", trend: "0", trendColor: "#7C3AED" },
+            { label: "Streak", value: "0 days", icon: <Flame size={16}/>, color: "#F59E0B", bg: "#FEF3C7", sub: "Best: 0", trend: "-", trendColor: "#F59E0B", valSize: "18px" },
+            { label: "Ideas Captured", value: stats.notesTotal, icon: <Brain size={16}/>, color: "#22D3EE", bg: "#CFFAFE", sub: "In Vault", trend: "0", trendColor: "#22D3EE" },
+          ].map((s, i) => (
+            <div key={i} className="group cursor-default transition-all" style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "16px", padding: "16px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }}>
+              <div className="flex justify-between items-start mb-2">
+                <div style={{ width: "32px", height: "32px", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", background: s.bg, color: s.color }}>{s.icon}</div>
+                <span style={{ fontSize: "11px", fontWeight: 700, color: s.trendColor }}>{s.trend}</span>
               </div>
-              <div className="text-2xl font-bold text-primary mb-1">{value}</div>
-              <div className="flex items-center justify-between">
-                <span className="text-2xs text-muted">{sub}</span>
-                <span className={`text-2xs font-semibold ${trendUp ? "text-success" : "text-danger"}`}>
-                  {trend}
-                </span>
-              </div>
+              <div style={{ fontSize: "11px", fontWeight: 700, color: "#64748B", marginBottom: "2px", textTransform: "uppercase", letterSpacing: "0.5px" }}>{s.label}</div>
+              <div style={{ fontSize: s.valSize || "24px", fontWeight: 700, color: "#0F172A", marginBottom: "0px", letterSpacing: "-0.5px" }}>{s.value}</div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Main grid ──────────────────────────────────────── */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-
-        {/* ── Left col (charts) ────────────────────────────── */}
-        <div className="xl:col-span-2 space-y-5">
-
-          {/* Activity chart */}
-          <div className="nx-card p-5">
-            <div className="flex items-center justify-between mb-4">
+      {/* ── Main Grid ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 flex-1 min-h-0">
+        
+        {/* LEFT COL */}
+        <div className="xl:col-span-2 flex flex-col gap-4 min-h-0">
+          
+          {/* Live Area Chart */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "20px", padding: "20px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }} className="flex-1 flex flex-col min-h-0">
+            <div className="flex justify-between items-start mb-4 flex-shrink-0">
               <div>
-                <h2 className="text-md font-semibold text-primary">Activity Overview</h2>
-                <p className="text-xs text-muted">Last 14 days of output</p>
+                <div style={{ fontSize: "16px", fontWeight: 700, color: "#0F172A", marginBottom: "2px" }}>Statistics</div>
+                <div style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>Last 14 days of output (Live Sync)</div>
               </div>
-              <div className="flex items-center gap-4 text-xs text-muted">
-                {[
-                  { color: "#2F81F7", label: "Tasks"  },
-                  { color: "#A371F7", label: "Ideas"  },
-                  { color: "#2FBFA5", label: "Notes"  },
-                ].map(({ color, label }) => (
-                  <div key={label} className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded-sm" style={{ background: color }} />
-                    {label}
-                  </div>
-                ))}
+              <div className="flex gap-4 text-[11px] font-bold text-[#64748B]">
+                <span className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#7C3AED" }}/> Tasks</span>
+                <span className="flex items-center gap-1.5"><div style={{ width: 8, height: 8, borderRadius: "50%", background: "#22D3EE" }}/> Ideas</span>
               </div>
             </div>
-            <ResponsiveContainer width="100%" height={200}>
-              <AreaChart data={ACTIVITY_DATA} margin={{ top: 5, right: 5, bottom: 0, left: -20 }}>
-                <defs>
-                  {[
-                    { id: "tasks", color: "#2F81F7" },
-                    { id: "ideas", color: "#A371F7" },
-                    { id: "notes", color: "#2FBFA5" },
-                  ].map(({ id, color }) => (
-                    <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%"  stopColor={color} stopOpacity={0.2} />
-                      <stop offset="95%" stopColor={color} stopOpacity={0}   />
-                    </linearGradient>
-                  ))}
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#21262D" vertical={false} />
-                <XAxis dataKey="date" tick={{ fill: "#484F58", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#484F58", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="tasks" stroke="#2F81F7" fill="url(#tasks)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="ideas" stroke="#A371F7" fill="url(#ideas)" strokeWidth={2} dot={false} />
-                <Area type="monotone" dataKey="notes" stroke="#2FBFA5" fill="url(#notes)" strokeWidth={2} dot={false} />
-              </AreaChart>
-            </ResponsiveContainer>
+            <div className="flex-1 min-h-0">
+              {loading ? (
+                 <div className="h-full flex items-center justify-center text-xs font-bold text-[#94A3B8]">Loading Telemetry...</div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={activityData} margin={{ top: 5, right: 0, bottom: 0, left: -20 }}>
+                    <defs>
+                      <linearGradient id="colorPurpleLight" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#7C3AED" stopOpacity={0.15}/><stop offset="95%" stopColor="#7C3AED" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorCyanLight" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#22D3EE" stopOpacity={0.15}/><stop offset="95%" stopColor="#22D3EE" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F1F5F9" vertical={false} />
+                    <XAxis dataKey="date" tick={{ fill: "#94A3B8", fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} dy={10} />
+                    <YAxis tick={{ fill: "#94A3B8", fontSize: 10, fontWeight: 600 }} axisLine={false} tickLine={false} dx={-10} />
+                    <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#E2E8F0', strokeWidth: 1, strokeDasharray: '5 5' }} />
+                    <Area type="monotone" dataKey="tasks" stroke="#7C3AED" strokeWidth={3} fill="url(#colorPurpleLight)" activeDot={{ r: 5, fill: "#7C3AED", stroke: "#FFF", strokeWidth: 2 }} dot={{ r: 0 }} />
+                    <Area type="monotone" dataKey="ideas" stroke="#22D3EE" strokeWidth={3} fill="url(#colorCyanLight)" activeDot={{ r: 5, fill: "#22D3EE", stroke: "#FFF", strokeWidth: 2 }} dot={{ r: 0 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
 
-          {/* Weekly task completion */}
-          <div className="nx-card p-5">
-            <div className="flex items-center justify-between mb-4">
+          {/* Live Weekly Task Completion */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "20px", padding: "20px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }} className="flex-shrink-0">
+            <div className="flex justify-between items-center mb-3">
               <div>
-                <h2 className="text-md font-semibold text-primary">Weekly Task Completion</h2>
-                <p className="text-xs text-muted">Tasks done vs total this week</p>
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#0F172A" }}>Weekly Task Completion</div>
+                <div style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>Tasks done vs total this week</div>
               </div>
-              <span className="badge badge-green">82% avg</span>
+              <span style={{ fontSize: "11px", fontWeight: 700, padding: "4px 10px", borderRadius: "6px", background: "#F3E8FF", color: "#7C3AED" }}>{weeklyPct}% avg</span>
             </div>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={TASK_DATA} margin={{ top: 0, right: 0, bottom: 0, left: -25 }} barGap={3}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#21262D" vertical={false} />
-                <XAxis dataKey="day" tick={{ fill: "#484F58", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#484F58", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Bar dataKey="total" fill="#21262D"  radius={[3,3,0,0]} maxBarSize={28} />
-                <Bar dataKey="done"  fill="#3FB950"  radius={[3,3,0,0]} maxBarSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Pinned projects */}
-          <div className="nx-card p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-md font-semibold text-primary">Pinned Projects</h2>
-                <p className="text-xs text-muted">{PINNED_PROJECTS.length} active projects</p>
-              </div>
-              <button
-                onClick={() => navigate("/vault")}
-                className="btn btn-ghost btn-sm gap-1"
-              >
-                View all <ArrowRight size={12} />
-              </button>
-            </div>
-            <div className="space-y-3">
-              {PINNED_PROJECTS.map((p) => (
-                <div
-                  key={p.id}
-                  onClick={() => navigate("/vault")}
-                  className="group flex items-center gap-4 p-3 rounded-lg
-                             border border-border-subtle hover:border-accent/30
-                             hover:bg-surface cursor-pointer transition-all"
-                >
-                  {/* Color bar */}
-                  <div className={`w-1 h-10 rounded-full flex-shrink-0 bg-${
-                    p.color === "blue"   ? "accent"        :
-                    p.color === "green"  ? "success"       :
-                    "purple-400"
-                  }`} />
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-sm font-semibold text-primary truncate">
-                        {p.title}
-                      </span>
-                      <Badge variant={p.status === "active" ? "green" : "amber"} dot>
-                        {p.status}
-                      </Badge>
-                      <span className="badge badge-gray text-2xs ml-auto">
-                        {p.category}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="flex-1 nx-progress">
-                        <div
-                          className={`nx-progress-fill bg-${
-                            p.color === "blue"   ? "accent"   :
-                            p.color === "green"  ? "success"  :
-                            "purple-400"
-                          }`}
-                          style={{ width: `${p.progress}%` }}
-                        />
-                      </div>
-                      <span className="text-xs text-muted w-8 text-right flex-shrink-0">
-                        {p.progress}%
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-xs text-muted">{p.tasks} tasks</div>
-                    <ArrowRight
-                      size={13}
-                      className="text-muted group-hover:text-accent ml-auto mt-1 transition-colors"
-                    />
-                  </div>
-                </div>
-              ))}
+            <div style={{ width: "100%", height: "12px", background: "#F1F5F9", borderRadius: "10px", overflow: "hidden" }}>
+               <div style={{ width: `${weeklyPct}%`, height: "100%", background: "#7C3AED", borderRadius: "10px", transition: "width 1s ease-in-out" }} />
             </div>
           </div>
         </div>
 
-        {/* ── Right col ────────────────────────────────────── */}
-        <div className="space-y-5">
+        {/* RIGHT COL */}
+        <div className="flex flex-col gap-4 min-h-0">
+          
+          {/* Starting Tasks */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "20px", padding: "20px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }} className="flex-1 flex flex-col min-h-0">
+            <div style={{ marginBottom: "12px", flexShrink: 0 }}>
+              <div style={{ fontSize: "14px", fontWeight: 700, color: "#0F172A", marginBottom: "2px" }}>Starting Tasks</div>
+              <div style={{ fontSize: "12px", color: "#64748B", fontWeight: 500 }}>{stats.tasksDone}/{stats.tasksTotal} complete</div>
+            </div>
+            <div className="space-y-2 overflow-y-auto custom-scrollbar pr-2 flex-1">
+              {tasks.length > 0 ? tasks.map((task) => (
+                <div key={task.id} onClick={() => toggleTask(task.id)} style={{ display: "flex", alignItems: "center", gap: "12px", padding: "12px 14px", border: "1px solid #F1F5F9", borderRadius: "12px", cursor: "pointer", transition: "all 0.2s" }} className="hover:border-[#E2E8F0] hover:shadow-sm">
+                  <div style={{ width: "18px", height: "18px", borderRadius: "50%", border: `2px solid ${task.done ? "#10B981" : "#CBD5E1"}`, background: task.done ? "#10B981" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: "10px", transition: "all 0.2s" }}>
+                    {task.done && "✓"}
+                  </div>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: task.done ? "#94A3B8" : "#0F172A", textDecoration: task.done ? "line-through" : "none", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {task.title}
+                  </div>
+                </div>
+              )) : (
+                <div className="h-full flex items-center justify-center text-xs font-bold text-[#94A3B8]">No tasks to start.</div>
+              )}
+            </div>
+          </div>
 
-          {/* Today's tasks */}
-          <div className="nx-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-md font-semibold text-primary">Today's Tasks</h2>
-                <p className="text-xs text-muted">{doneTasks}/{tasks.length} complete</p>
-              </div>
-              <button
-                onClick={() => navigate("/daily")}
-                className="btn btn-ghost btn-icon btn-sm"
-              >
-                <ExternalLink size={13} />
+          {/* Idea Vault Integration */}
+          <div style={{ background: "#FFFFFF", border: "1px solid #F1F5F9", borderRadius: "20px", padding: "20px", boxShadow: "0 4px 20px rgba(0,0,0,0.02)" }} className="flex-1 flex flex-col min-h-0">
+             <div className="flex justify-between items-center mb-4 flex-shrink-0">
+                <div style={{ fontSize: "14px", fontWeight: 700, color: "#0F172A" }}>Recent Ideas</div>
+                <span onClick={() => navigate("/intel")} style={{ fontSize: "10px", fontWeight: 700, color: "#F59E0B", background: "#FEF3C7", padding: "4px 8px", borderRadius: "6px", cursor: "pointer" }} className="hover:bg-[#FDE68A] transition-colors">Open Vault</span>
+             </div>
+             <div className="space-y-3 overflow-y-auto custom-scrollbar pr-2 flex-1">
+               {ideas.length > 0 ? ideas.map((idea) => (
+                 <div key={idea.id} className="flex gap-3 items-start border-b border-[#F1F5F9] pb-3 last:border-0 last:pb-0">
+                   <Lightbulb size={14} className="text-[#F59E0B] mt-0.5 flex-shrink-0" />
+                   <div>
+                     <p className="text-xs font-bold text-[#0F172A] mb-0.5">{idea.title || "New Concept"}</p>
+                     <p className="text-[11px] text-[#64748B] line-clamp-2 leading-relaxed font-medium">"{idea.raw}"</p>
+                   </div>
+                 </div>
+               )) : (
+                 <div className="h-full flex items-center justify-center text-xs font-bold text-[#94A3B8]">No ideas captured yet.</div>
+               )}
+             </div>
+          </div>
+
+          {/* JARVIS AI Card */}
+          <div style={{ background: "linear-gradient(135deg, #F3E8FF 0%, #FFFFFF 100%)", border: "1px solid #E2E8F0", borderRadius: "20px", padding: "24px 20px", position: "relative", overflow: "hidden", boxShadow: "0 10px 30px rgba(124,58,237,0.05)" }} className="flex-shrink-0">
+            <div style={{ position: "relative", zIndex: 10, width: "65%" }}>
+              <div style={{ fontSize: "18px", fontWeight: 800, color: "#7C3AED", marginBottom: "4px", letterSpacing: "-0.5px" }}>JARVIS AI</div>
+              <div style={{ fontSize: "12px", color: "#475569", fontWeight: 500, marginBottom: "16px", lineHeight: "1.4" }}>Your autonomous intelligence center.</div>
+              <button onClick={() => navigate("/intel")} style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: 700, color: "#0F172A", cursor: "pointer", background: "none", border: "none", padding: 0, transition: "gap 0.2s" }} className="hover:gap-2">
+                Initialize <ArrowRight size={14} />
               </button>
             </div>
-
-            {/* Progress */}
-            <div className="mb-4">
-              <div className="flex justify-between text-xs text-muted mb-1.5">
-                <span>Progress</span>
-                <span className="font-semibold text-primary">{pct}%</span>
-              </div>
-              <div className="nx-progress">
-                <div
-                  className="nx-progress-fill"
-                  style={{
-                    width: `${pct}%`,
-                    background: pct >= 80
-                      ? "linear-gradient(90deg, #3FB950, #56D364)"
-                      : pct >= 50
-                        ? "linear-gradient(90deg, #2F81F7, #388BFD)"
-                        : "linear-gradient(90deg, #D29922, #E3B341)",
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* Task list */}
-            <div className="space-y-1.5">
-              {tasks.map((task) => (
-                <div
-                  key={task.id}
-                  className="flex items-center gap-3 p-2 rounded-md
-                             hover:bg-surface transition-colors group"
-                >
-                  <button
-                    onClick={() => toggleTask(task.id)}
-                    className={`w-4 h-4 rounded border flex-shrink-0 flex items-center
-                                justify-center transition-all
-                                ${task.done
-                                  ? "bg-success border-success"
-                                  : "border-border hover:border-success"
-                                }`}
-                  >
-                    {task.done && (
-                      <svg width="9" height="7" viewBox="0 0 9 7" fill="none">
-                        <path d="M1 3.5L3.5 6L8 1" stroke="#fff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    )}
-                  </button>
-                  <span className={`flex-1 text-sm truncate ${task.done ? "line-through text-muted" : "text-primary"}`}>
-                    {task.title}
-                  </span>
-                  <span className={`badge text-2xs flex-shrink-0 ${PRIORITY_COLORS[task.priority]}`}>
-                    {task.priority}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => navigate("/daily")}
-              className="btn btn-ghost btn-sm w-full mt-3 gap-1.5"
-            >
-              <Plus size={12} /> Add task
-            </button>
-          </div>
-
-          {/* Live activity feed */}
-          <div className="nx-card p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h2 className="text-md font-semibold text-primary">Live Activity</h2>
-                <p className="text-xs text-muted">Recent system events</p>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="dot dot-green animate-ping-slow" />
-                <span className="text-2xs text-success font-medium">LIVE</span>
-              </div>
-            </div>
-
-            <div className="space-y-0">
-              {RECENT_ACTIVITY.map((item, i) => (
-                <div key={item.id} className="activity-item">
-                  <div className="activity-dot-line">
-                    <span className={`dot ${item.color} mt-1`} />
-                    {i < RECENT_ACTIVITY.length - 1 && (
-                      <div className="activity-line" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0 pb-3">
-                    <p className="text-xs text-secondary leading-snug">{item.text}</p>
-                    <span className="text-2xs text-muted">{item.time}</span>
-                  </div>
-                </div>
-              ))}
+            {/* Glowing Abstract Orb */}
+            <div style={{
+              position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)",
+              width: "80px", height: "80px", borderRadius: "50%",
+              background: "radial-gradient(circle at 30% 30%, #D8B4FE, #7C3AED, #4C1D95)",
+              boxShadow: "0 10px 30px rgba(124,58,237,0.4), inset -10px -10px 20px rgba(0,0,0,0.2)",
+              zIndex: 1
+            }}>
+               <div style={{ position:"absolute", inset: "-15px", border: "1px solid rgba(124,58,237,0.2)", borderRadius: "50%" }}></div>
+               <div style={{ position:"absolute", inset: "-30px", border: "1px dashed rgba(124,58,237,0.1)", borderRadius: "50%" }}></div>
             </div>
           </div>
 
-          {/* Quick AI panel */}
-          <div className="nx-card p-5 border-accent/20"
-               style={{ background: "linear-gradient(135deg, #0D1117, #0D2340)" }}>
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-7 h-7 rounded-lg bg-accent/20 border border-accent/30
-                              flex items-center justify-center">
-                <Brain size={14} className="text-accent-hover" />
-              </div>
-              <div>
-                <div className="text-sm font-semibold text-primary">JARVIS AI</div>
-                <div className="text-2xs text-success flex items-center gap-1">
-                  <span className="dot dot-green w-1.5 h-1.5" /> Online
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-secondary mb-3 leading-relaxed">
-              Ask me anything about your projects, get ideas brainstormed, or summarize your emails.
-            </p>
-            <button
-              onClick={() => navigate("/intel")}
-              className="btn btn-blue btn-sm w-full gap-1.5"
-            >
-              <Brain size={13} />
-              Open AI Center
-              <ArrowRight size={12} className="ml-auto" />
-            </button>
-          </div>
         </div>
       </div>
     </div>

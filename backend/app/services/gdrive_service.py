@@ -1,29 +1,11 @@
 # backend/app/services/gdrive_service.py
 # ══════════════════════════════════════════════════════════════
-#  JARVIS OS — Google Drive API Service (Phase 5)
-#
-#  Uses a Service Account for server-side authentication.
-#  No OAuth popup needed — runs headlessly on the backend.
-#
-#  Setup (one-time):
-#    1. Google Cloud Console → New Project
-#    2. Enable Google Drive API
-#    3. Create Service Account → Download JSON key
-#    4. Save as: backend/gdrive_credentials.json
-#    5. Share your Drive folder with the service account email
-#
-#  Methods:
-#    list_files()      → List files in a folder
-#    upload_file()     → Upload bytes to Drive
-#    create_folder()   → Create a new folder
-#    get_file_link()   → Get shareable link for a file
-#    delete_file()     → Delete a file from Drive
-#    get_storage_stats() → Count files + get root info
+#  JARVIS OS — Google Drive API Service (Fixed Phase 5)
 # ══════════════════════════════════════════════════════════════
 
 import logging
 import os
-from typing import Optional, BinaryIO
+from typing import Optional
 
 from app.core.config import settings
 
@@ -32,7 +14,6 @@ logger = logging.getLogger("jarvis-os.gdrive_service")
 
 # ──────────────────────────────────────────────────────────────
 # MIME TYPE MAPPING
-# Maps common file extensions to Google Drive MIME types
 # ──────────────────────────────────────────────────────────────
 GOOGLE_MIME_TYPES = {
     "application/vnd.google-apps.folder": "folder",
@@ -41,7 +22,6 @@ GOOGLE_MIME_TYPES = {
     "application/vnd.google-apps.presentation": "Google Slides",
 }
 
-# Files to exclude from listings (system files)
 EXCLUDED_MIME_TYPES = [
     "application/vnd.google-apps.shortcut",
 ]
@@ -65,14 +45,9 @@ class GoogleDriveService:
     """
     Service account-based Google Drive wrapper.
     Singleton — initialize once, reuse everywhere.
-
-    Usage:
-        from app.services.gdrive_service import get_gdrive_service
-        gdrive = get_gdrive_service()
-        files  = gdrive.list_files()
     """
 
-    # Required OAuth scopes
+    # Required OAuth scopes for Drive access[[1]](https://googleapis.github.io/google-api-python-client/docs/oauth-server.html)
     SCOPES = [
         "https://www.googleapis.com/auth/drive",
         "https://www.googleapis.com/auth/drive.file",
@@ -85,12 +60,12 @@ class GoogleDriveService:
         self.root_folder_id = settings.GDRIVE_ROOT_FOLDER_ID
 
     # ──────────────────────────────────────────────────────────
-    # INITIALIZATION — Lazy-loads Google API client
+    # INITIALIZATION
     # ──────────────────────────────────────────────────────────
     def _init(self):
         """
         Initializes the Google Drive API client using service account JSON.
-        Raises clear errors if credentials file is missing.
+        Loads credentials from service account file[[2]](https://googleapis.github.io/google-api-python-client/docs/oauth-server.html)
         """
         if self._initialized:
             return
@@ -105,9 +80,10 @@ class GoogleDriveService:
             )
 
         try:
-            from google.oauth2          import service_account
+            from google.oauth2 import service_account
             from googleapiclient.discovery import build
 
+            # Create credentials from service account file[[3]](https://googleapis.dev/python/google-api-core/latest/auth.html)
             self._credentials = service_account.Credentials.from_service_account_file(
                 creds_path,
                 scopes=self.SCOPES,
@@ -126,13 +102,14 @@ class GoogleDriveService:
                 f"root folder: {self.root_folder_id or 'root'}"
             )
 
-        except ImportError:
+        except ImportError as e:
             raise ImportError(
                 "google-api-python-client not installed. "
                 "Run: pip install google-api-python-client google-auth"
-            )
+            ) from e
         except Exception as e:
-            raise RuntimeError(f"Google Drive init failed: {e}")
+            logger.error(f"Google Drive init failed: {e}")
+            raise RuntimeError(f"Google Drive init failed: {e}") from e
 
     def _svc(self):
         """Returns initialized Drive service, auto-initializing if needed."""
@@ -140,7 +117,7 @@ class GoogleDriveService:
         return self._service
 
     # ──────────────────────────────────────────────────────────
-    # LIST FILES — List files/folders in a Drive folder
+    # LIST FILES
     # ──────────────────────────────────────────────────────────
     def list_files(
         self,
@@ -154,23 +131,17 @@ class GoogleDriveService:
         Args:
             folder_id:  Drive folder ID. Defaults to root_folder_id from .env
             page_size:  Number of files per page (max 100)
-            page_token: For pagination — pass from previous response
+            page_token: For pagination
 
         Returns:
-            {
-                "files":           list of file dicts,
-                "next_page_token": str or None,
-                "folder_id":       str,
-            }
+            dict with files, next_page_token, and folder_id
         """
         self._init()
 
         target_folder = folder_id or self.root_folder_id or "root"
 
-        # Build query
         query = f"'{target_folder}' in parents and trashed=false"
 
-        # Fields to fetch — minimized for performance
         fields = (
             "nextPageToken, "
             "files(id, name, mimeType, size, "
@@ -192,7 +163,6 @@ class GoogleDriveService:
             raw_files   = result.get("files", [])
             next_token  = result.get("nextPageToken")
 
-            # ── Format response ───────────────────────────────
             files = []
             for f in raw_files:
                 mime = f.get("mimeType", "")
@@ -214,9 +184,7 @@ class GoogleDriveService:
                     "parent_id":        (f.get("parents") or [None])[0],
                 })
 
-            logger.info(
-                f"📁 Listed {len(files)} files in folder '{target_folder}'"
-            )
+            logger.info(f"📁 Listed {len(files)} files in folder '{target_folder}'")
 
             return {
                 "files":            files,
@@ -225,11 +193,11 @@ class GoogleDriveService:
             }
 
         except Exception as e:
-            logger.error(f"💥 Drive list_files failed: {e}")
+            logger.error(f"Drive list_files failed: {e}")
             raise
 
     # ──────────────────────────────────────────────────────────
-    # UPLOAD FILE — Upload a file to Google Drive
+    # UPLOAD FILE
     # ──────────────────────────────────────────────────────────
     def upload_file(
         self,
@@ -245,7 +213,7 @@ class GoogleDriveService:
             file_name:  Name for the file in Drive
             file_data:  Raw bytes of the file content
             mime_type:  MIME type of the file
-            folder_id:  Target folder. Defaults to root_folder_id
+            folder_id:  Target folder (defaults to root_folder_id)
 
         Returns:
             Drive file metadata dict
@@ -254,16 +222,17 @@ class GoogleDriveService:
 
         from googleapiclient.http import MediaInMemoryUpload
 
+        # Use provided folder or default to root_folder_id
         target_folder = folder_id or self.root_folder_id
 
-        file_metadata: dict = {"name": file_name}
+        file_metadata = {"name": file_name}
         if target_folder:
             file_metadata["parents"] = [target_folder]
 
         media = MediaInMemoryUpload(
             file_data,
             mimetype=mime_type,
-            resumable=len(file_data) > 5 * 1024 * 1024,  # Resumable for >5MB
+            resumable=len(file_data) > 5 * 1024 * 1024,
         )
 
         try:
@@ -280,8 +249,8 @@ class GoogleDriveService:
 
             size_bytes = int(result.get("size", 0) or 0)
             logger.info(
-                f"✅ Uploaded '{file_name}' to Drive "
-                f"({_human_size(size_bytes)}) → ID: {result['id']}"
+                f"✅ Uploaded '{file_name}' ({_human_size(size_bytes)}) "
+                f"→ ID: {result['id']}"
             )
 
             return {
@@ -289,13 +258,14 @@ class GoogleDriveService:
                 "file_name":      result["name"],
                 "mime_type":      result.get("mimeType", mime_type),
                 "size_bytes":     size_bytes,
+                "size_human":     _human_size(size_bytes),
                 "web_view_link":  result.get("webViewLink"),
                 "folder_id":      target_folder,
                 "message":        f"'{file_name}' uploaded successfully.",
             }
 
         except Exception as e:
-            logger.error(f"💥 Drive upload failed for '{file_name}': {e}")
+            logger.error(f"Drive upload failed for '{file_name}': {e}")
             raise
 
     # ──────────────────────────────────────────────────────────
@@ -311,16 +281,16 @@ class GoogleDriveService:
 
         Args:
             folder_name:      Name for the new folder
-            parent_folder_id: Parent folder. Defaults to root_folder_id
+            parent_folder_id: Parent folder (defaults to root_folder_id)
 
         Returns:
-            Folder metadata dict including the new folder ID
+            Folder metadata dict
         """
         self._init()
 
         parent = parent_folder_id or self.root_folder_id
 
-        file_metadata: dict = {
+        file_metadata = {
             "name":     folder_name,
             "mimeType": "application/vnd.google-apps.folder",
         }
@@ -338,24 +308,22 @@ class GoogleDriveService:
                 .execute()
             )
 
-            logger.info(
-                f"📁 Created Drive folder: '{folder_name}' → ID: {result['id']}"
-            )
+            logger.info(f"📁 Created folder '{folder_name}' → ID: {result['id']}")
 
             return {
                 "folder_id":     result["id"],
                 "folder_name":   result["name"],
                 "web_view_link": result.get("webViewLink"),
                 "parent_id":     (result.get("parents") or [None])[0],
-                "message":       f"Folder '{folder_name}' created in Google Drive.",
+                "message":       f"Folder '{folder_name}' created successfully.",
             }
 
         except Exception as e:
-            logger.error(f"💥 Drive create_folder failed: {e}")
+            logger.error(f"Drive create_folder failed: {e}")
             raise
 
     # ──────────────────────────────────────────────────────────
-    # GET FILE LINK — Get shareable web link for a file
+    # GET FILE LINK
     # ──────────────────────────────────────────────────────────
     def get_file_link(self, file_id: str) -> dict:
         """Returns the web view link and download link for a Drive file."""
@@ -384,40 +352,34 @@ class GoogleDriveService:
             }
 
         except Exception as e:
-            logger.error(f"💥 Drive get_file_link failed for {file_id}: {e}")
+            logger.error(f"Drive get_file_link failed for {file_id}: {e}")
             raise
 
     # ──────────────────────────────────────────────────────────
     # DELETE FILE
     # ──────────────────────────────────────────────────────────
     def delete_file(self, file_id: str) -> bool:
-        """
-        Moves a file to Drive Trash.
-        Returns True on success.
-        """
+        """Moves a file to Drive Trash. Returns True on success."""
         self._init()
 
         try:
             self._svc().files().trash(fileId=file_id).execute()
-            logger.info(f"🗑️  Drive file trashed: {file_id}")
+            logger.info(f"🗑️  Trashed file: {file_id}")
             return True
         except Exception as e:
-            logger.error(f"💥 Drive delete failed for {file_id}: {e}")
+            logger.error(f"Drive delete failed for {file_id}: {e}")
             raise
 
     # ──────────────────────────────────────────────────────────
     # STORAGE STATS
     # ──────────────────────────────────────────────────────────
     def get_storage_stats(self) -> dict:
-        """
-        Returns a summary of the JARVIS root Drive folder.
-        """
+        """Returns a summary of the root Drive folder."""
         self._init()
 
         try:
             target = self.root_folder_id or "root"
 
-            # Get root folder info
             folder_info = (
                 self._svc()
                 .files()
@@ -425,7 +387,6 @@ class GoogleDriveService:
                 .execute()
             )
 
-            # Count files and folders
             result = (
                 self._svc()
                 .files()
@@ -454,7 +415,7 @@ class GoogleDriveService:
             }
 
         except Exception as e:
-            logger.warning(f"⚠️  Drive stats failed: {e}")
+            logger.warning(f"Drive stats failed: {e}")
             return {
                 "total_files":      0,
                 "total_folders":    0,

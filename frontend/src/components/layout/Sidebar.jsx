@@ -1,41 +1,38 @@
+import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { useApp } from "@/App";
 import { supabase } from "@/lib/supabase";
 import {
-  LayoutDashboard, Kanban, CalendarCheck2,
-  FolderOpen, BookOpen, Brain,
-  BarChart3, Cpu, Settings,
-  ChevronLeft, ChevronRight,
-  Zap, LogOut, Search, Bell,
-  GitBranch, Layers,
+  LayoutDashboard, Target, CalendarCheck2, FolderOpen,
+  BookOpen, Brain, Activity, Settings, Cpu,
+  LogOut, Search, ChevronLeft, ChevronRight
 } from "lucide-react";
-import clsx from "clsx";
-import { useState, useEffect } from "react";
 import { format } from "date-fns";
+import clsx from "clsx";
 
 const NAV = [
   {
     section: "WORKSPACE",
     items: [
-      { path: "/",         icon: LayoutDashboard, label: "Dashboard",      badge: null   },
-      { path: "/work",     icon: Kanban,          label: "Work Center",    badge: null    },
-      { path: "/daily",    icon: CalendarCheck2,  label: "Daily Ops",      badge: null   },
-      { path: "/vault",    icon: FolderOpen,      label: "Project Vault",  badge: null   },
-      { path: "/notes",    icon: BookOpen,        label: "Notes & Docs",   badge: null   },
+      { path: "/",         icon: LayoutDashboard, label: "Dashboard"     },
+      { path: "/work",     icon: Target,          label: "Work Center"   },
+      { path: "/daily",    icon: CalendarCheck2,  label: "Daily Ops"     },
+      { path: "/vault",    icon: FolderOpen,      label: "Project Vault" },
+      { path: "/notes",    icon: BookOpen,        label: "Notes & Docs"  },
     ],
   },
   {
     section: "INTELLIGENCE",
     items: [
-      { path: "/intel",    icon: Brain,   label: "AI Center",      badge: null  },
-      { path: "/analytics",icon: BarChart3,label: "Analytics",     badge: null  },
+      { path: "/intel",    icon: Brain,    label: "AI Center" },
+      { path: "/analytics",icon: Activity, label: "Analytics" },
     ],
   },
   {
     section: "SYSTEM",
     items: [
-      { path: "/hardware", icon: Cpu,      label: "Hardware Bridge", badge: null },
-      { path: "/settings", icon: Settings, label: "Settings",        badge: null },
+      { path: "/hardware", icon: Cpu,      label: "Hardware Bridge" },
+      { path: "/settings", icon: Settings, label: "Settings"        },
     ],
   },
 ];
@@ -52,6 +49,7 @@ export default function Sidebar() {
   const navigate  = useNavigate();
   const [time, setTime] = useState(new Date());
 
+  // Live Clock
   useEffect(() => {
     const id = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(id);
@@ -62,112 +60,104 @@ export default function Sidebar() {
     navigate("/login");
   };
 
-  const name  = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "User";
-  const initials = name.split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2);
+  const name  = user?.user_metadata?.full_name || user?.email?.split("@")[0] || "NooThing";
 
   return (
     <aside
-      className={clsx("app-sidebar !bg-transparent backdrop-blur-2xl border-r border-white/10", sidebarCollapsed && "collapsed")}
+      className={clsx(
+        "flex flex-col h-screen flex-shrink-0 transition-all duration-300 border-r border-[#1E293B]",
+        sidebarCollapsed ? "w-20" : "w-[260px]"
+      )}
+      style={{ backgroundColor: "#0B1021", color: "#FFFFFF" }}
     >
-      {/* ── Brand ──────────────────────────────────────────── */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-border-subtle flex-shrink-0">
+      {/* ── Brand ── */}
+      <div className="flex items-center justify-between px-4 py-5 border-b border-[#1E293B] flex-shrink-0">
         {!sidebarCollapsed && (
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-accent rounded-md flex items-center justify-center flex-shrink-0">
-              <Zap size={15} className="text-white" />
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
+              <img src="/bat_logo.png" alt="Logo" className="w-full h-auto drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
             </div>
             <div>
-              <div className="text-sm font-bold text-primary tracking-tight">JARVIS OS</div>
-              <div className="text-2xs text-muted">v2.0 — Personal OS</div>
+              <div className="text-[15px] font-bold tracking-tight" style={{ fontFamily: "'Syne', sans-serif" }}>NOOTHING</div>
+              <div className="text-[10px] text-[#64748B] font-mono mt-0.5">Life DB</div>
             </div>
           </div>
         )}
         {sidebarCollapsed && (
-          <div className="w-7 h-7 bg-accent rounded-md flex items-center justify-center mx-auto">
-            <Zap size={15} className="text-white" />
+          <div className="w-10 h-10 flex items-center justify-center mx-auto">
+            <img src="/bat_logo.png" alt="Logo" className="w-full h-auto drop-shadow-[0_0_8px_rgba(255,255,255,0.4)]" />
           </div>
         )}
-        <button
-          onClick={() => setSidebarCollapsed((v) => !v)}
-          className="btn btn-ghost btn-icon flex-shrink-0 ml-auto"
-        >
-          {sidebarCollapsed
-            ? <ChevronRight size={14} />
-            : <ChevronLeft  size={14} />
-          }
-        </button>
       </div>
 
-      {/* ── User profile card ──────────────────────────────── */}
+      {/* ── User profile card ── */}
       {!sidebarCollapsed && (
-        <div className="mx-3 mt-3 mb-1 p-3 rounded-lg bg-white/5 border border-border-subtle">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-full bg-accent-muted border border-accent/30
-                            flex items-center justify-center text-sm font-bold text-accent-hover flex-shrink-0">
-              {initials}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold text-primary truncate">{name}</div>
-              <div className="text-2xs text-muted truncate">{user?.email}</div>
-            </div>
+        <div className="mx-4 mt-5 mb-2 p-3 rounded-xl border border-[#1E293B] bg-[rgba(255,255,255,0.03)] hover:bg-[rgba(255,255,255,0.06)] cursor-pointer transition-colors flex items-center gap-3">
+          <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 bg-[#050810] border border-[#1E293B]">
+            <img src="/bat_logo.png" alt="User" className="w-5 h-auto drop-shadow-[0_0_5px_rgba(255,255,255,0.2)]" />
           </div>
-
-          {/* Live clock */}
-          <div className="mt-2.5 pt-2.5 border-t border-border-subtle flex items-center justify-between">
-            <span className="font-mono text-xs text-accent-hover font-medium">
-              {format(time, "HH:mm:ss")}
-            </span>
-            <span className="text-2xs text-muted">
-              {format(time, "EEE, MMM d")}
-            </span>
+          <div className="min-w-0 flex-1 flex items-center">
+            <div className="text-[13.5px] font-semibold text-white truncate">{name}</div>
           </div>
         </div>
       )}
 
-      {/* ── Search shortcut ────────────────────────────────── */}
+      {/* ── Live clock ── */}
       {!sidebarCollapsed && (
-        <div className="px-3 mt-2 mb-1">
+        <div className="px-6 py-3 flex items-center justify-between mb-2">
+          <span className="font-mono text-[20px] font-medium text-[#7C3AED]" style={{ textShadow: "0 0 20px rgba(124,106,247,0.3)" }}>
+            {format(time, "HH:mm:ss")}
+          </span>
+          <span className="text-[11px] text-[#64748B]">
+            {format(time, "EEE, MMM d")}
+          </span>
+        </div>
+      )}
+
+      {/* ── Search shortcut ── */}
+      {!sidebarCollapsed && (
+        <div className="px-4 mb-4">
           <button
             onClick={() => setCmdOpen(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-md
-                       bg-white/5 border border-border text-muted text-sm
-                       hover:border-accent/40 hover:text-secondary
-                       transition-all duration-150"
+            className="w-full flex items-center gap-2 px-3 py-2.5 bg-[rgba(255,255,255,0.03)] border border-[#1E293B] rounded-xl cursor-pointer hover:bg-[rgba(255,255,255,0.06)] transition-colors text-[#94A3B8]"
           >
-            <Search size={13} />
-            <span className="flex-1 text-left text-xs">Search or jump to...</span>
-            <kbd className="text-2xs font-mono bg-raised px-1.5 py-0.5 rounded border border-border">
+            <Search size={14} />
+            <span className="text-[12px] flex-1 text-left">Search or jump to...</span>
+            <kbd className="text-[10px] font-mono bg-[#0B1021] border border-[#1E293B] px-1.5 py-0.5 rounded text-[#64748B]">
               ⌘K
             </kbd>
           </button>
         </div>
       )}
 
-      {/* ── Navigation ─────────────────────────────────────── */}
-      <nav className="flex-1 px-2 py-2 overflow-y-auto overflow-x-hidden">
+      {/* ── Navigation using NavLink ── */}
+      <nav className="flex-1 px-3 overflow-y-auto space-y-5 pb-6 custom-scrollbar">
         {NAV.map(({ section, items }) => (
-          <div key={section} className="mb-2">
+          <div key={section}>
             {!sidebarCollapsed && (
-              <div className="nav-section-label">{section}</div>
+              <div className="px-3 mb-2 text-[10px] font-bold text-[#64748B] uppercase tracking-wider">{section}</div>
             )}
-            <div className="space-y-0.5">
-              {items.map(({ path, icon: Icon, label, badge }) => (
+            <div className="space-y-1">
+              {items.map(({ path, icon: Icon, label }) => (
                 <NavLink
                   key={path}
                   to={path}
                   end={path === "/"}
                   className={({ isActive }) =>
-                    clsx("nav-item", isActive && "active")
+                    clsx(
+                      "w-full flex items-center gap-3 px-3 py-3 rounded-xl text-[13px] font-medium transition-all",
+                      isActive
+                        ? "bg-[#7C3AED] text-white shadow-[0_4px_15px_rgba(124,58,237,0.3)]"
+                        : "text-[#94A3B8] hover:bg-[rgba(255,255,255,0.05)] hover:text-white",
+                      sidebarCollapsed && "justify-center"
+                    )
                   }
                   title={sidebarCollapsed ? label : undefined}
                 >
-                  <Icon size={16} className="flex-shrink-0" />
-                  {!sidebarCollapsed && (
+                  {({ isActive }) => (
                     <>
-                      <span className="flex-1 truncate">{label}</span>
-                      {badge && (
-                        <span className="nav-badge">{badge}</span>
-                      )}
+                      <Icon size={18} className={isActive ? "text-white" : "text-[#64748B]"} />
+                      {!sidebarCollapsed && <span className="flex-1 truncate">{label}</span>}
                     </>
                   )}
                 </NavLink>
@@ -177,41 +167,43 @@ export default function Sidebar() {
         ))}
       </nav>
 
-      {/* ── System Status ──────────────────────────────────── */}
+      {/* ── System Status & Footer ── */}
       {!sidebarCollapsed && (
-        <div className="px-3 py-3 border-t border-border-subtle flex-shrink-0">
-          <div className="nav-section-label mb-2">SYSTEM STATUS</div>
-          <div className="space-y-1.5">
-            {SYSTEM_STATUS.map(({ label, ok }) => (
-              <div key={label} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <span className={clsx("dot", ok ? "dot-green" : "dot-red")} />
-                  <span className="text-xs text-secondary">{label}</span>
+        <div className="p-4 border-t border-[#1E293B] bg-[#0B1021] flex-shrink-0">
+          <div className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider mb-3 px-1">System Status</div>
+          <div className="space-y-2.5 px-1 mb-4">
+            {SYSTEM_STATUS.map((sys) => (
+              <div key={sys.label} className="flex items-center justify-between text-[11.5px]">
+                <div className="flex items-center gap-2 text-[#94A3B8]">
+                  <div className={clsx("w-1.5 h-1.5 rounded-full", sys.ok && "animate-pulse")}
+                       style={{ backgroundColor: sys.ok ? "#10B981" : "#EF4444", boxShadow: `0 0 6px ${sys.ok ? "#10B981" : "#EF4444"}` }} />
+                  {sys.label}
                 </div>
-                <span className={clsx(
-                  "text-2xs font-mono",
-                  ok ? "text-success" : "text-danger"
-                )}>
-                  {ok ? "LIVE" : "OFFLINE"}
+                <span className="font-mono text-[10px] font-bold tracking-wider" style={{ color: sys.ok ? "#10B981" : "#EF4444" }}>
+                  {sys.ok ? "LIVE" : "ERR"}
                 </span>
               </div>
             ))}
           </div>
+
+          {/* Sign Out */}
+          <button
+            onClick={handleSignOut}
+            className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-[#EF4444] text-[12px] font-semibold hover:bg-[rgba(239,68,68,0.1)] transition-colors"
+          >
+            <LogOut size={14} /> Sign Out
+          </button>
         </div>
       )}
-
-      {/* ── Sign out ───────────────────────────────────────── */}
-      <div className="px-2 pb-3 flex-shrink-0 border-t border-border-subtle pt-2">
-        <button
-          onClick={handleSignOut}
-          className="nav-item w-full text-left"
-        >
-          <LogOut size={15} className="flex-shrink-0 text-danger" />
-          {!sidebarCollapsed && (
-            <span className="text-danger/80">Sign Out</span>
-          )}
-        </button>
-      </div>
+      
+      {/* Collapse Toggle */}
+      {sidebarCollapsed && (
+         <div className="p-3 border-t border-[#1E293B] flex justify-center">
+            <button onClick={() => setSidebarCollapsed(false)} className="text-[#64748B] hover:text-white p-2">
+               <ChevronRight size={18} />
+            </button>
+         </div>
+      )}
     </aside>
   );
 }
